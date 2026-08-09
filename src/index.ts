@@ -18,16 +18,24 @@ import {
 	buildSessionContext,
 	type ContextUsage,
 	DEFAULT_COMPACTION_SETTINGS,
+	estimateTokens,
 	type ExtensionAPI,
 	type ExtensionCommandContext,
 	type SessionContext,
+	type SessionEntry,
 	type Theme,
+	type ToolInfo,
 } from "@earendil-works/pi-coding-agent";
 import { ScrollableTabContent } from "./scrollable-tab-content.js";
 import { type ContextTokenBreakdown, StatsTabContent } from "./stats-tab-content.js";
 import { TabbedOverlay } from "./tabbed-overlay.js";
 import { formatTokens } from "./utils.js";
 
+type AgentMessage = SessionContext["messages"][number];
+type AssistantMessage = Extract<AgentMessage, { role: "assistant" }>;
+type ToolCallBlock = Extract<AssistantMessage["content"][number], { type: "toolCall" }>;
+type MessageContent = Extract<AgentMessage, { content: unknown }>["content"];
+type ToolDefView = Pick<ToolInfo, "name"> & { description?: string; parameters?: unknown };
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 /** Build display lines with line numbers from raw text. */
@@ -40,73 +48,59 @@ export function buildNumberedLines(text: string, theme: Theme): string[] {
 	});
 }
 
-function formatImageBlock(block: any): string {
-	const label = block.mimeType ?? block.source?.type ?? "unknown";
-	return `[Image: ${label}]`;
-}
-
-function formatContent(content: unknown): string[] {
+function formatContent(content: MessageContent): string[] {
 	if (typeof content === "string") return [content];
-	if (!Array.isArray(content)) return [];
 
 	const lines: string[] = [];
 	for (const block of content) {
-		if (!block || typeof block !== "object") {
-			lines.push(String(block));
-			continue;
-		}
-
-		switch ((block as any).type) {
+		switch (block.type) {
 			case "text":
-				lines.push((block as any).text ?? "");
+				lines.push(block.text);
 				break;
 			case "thinking":
-				lines.push(`[Thinking: ${(block as any).thinking ?? ""}]`);
+				lines.push(`[Thinking: ${block.thinking}]`);
 				break;
 			case "toolCall":
-				lines.push(`[Tool Call: ${(block as any).name}(${JSON.stringify((block as any).arguments ?? {})})]`);
+				lines.push(`[Tool Call: ${block.name}(${JSON.stringify(block.arguments ?? {})})]`);
 				break;
 			case "image":
-				lines.push(formatImageBlock(block));
+				lines.push(`[Image: ${block.mimeType ?? "unknown"}]`);
 				break;
 			default:
-				lines.push(`[${(block as any).type ?? "unknown"}]`);
+				lines.push(`[${(block as { type?: string }).type ?? "unknown"}]`);
 		}
 	}
 	return lines;
 }
 
-function formatUsage(usage: any): string | undefined {
-	if (!usage) return undefined;
-
+function formatUsage(usage: AssistantMessage["usage"]): string {
 	const parts: string[] = [];
-	if (usage.input != null) parts.push(`input: ${usage.input}`);
-	if (usage.output != null) parts.push(`output: ${usage.output}`);
-	if (usage.cacheRead != null) parts.push(`cache-read: ${usage.cacheRead}`);
-	if (usage.cacheWrite != null) parts.push(`cache-write: ${usage.cacheWrite}`);
-	if (usage.totalTokens != null) parts.push(`total: ${usage.totalTokens}`);
-	return parts.length > 0 ? `Tokens: ${parts.join(", ")}` : undefined;
+	parts.push(`input: ${usage.input}`);
+	parts.push(`output: ${usage.output}`);
+	parts.push(`cache-read: ${usage.cacheRead}`);
+	parts.push(`cache-write: ${usage.cacheWrite}`);
+	parts.push(`total: ${usage.totalTokens}`);
+	return `Tokens: ${parts.join(", ")}`;
 }
-
 export function formatMessageForDisplay(message: SessionContext["messages"][number], index: number): string[] {
-	const msg = message as any;
-	const lines: string[] = ["", `──── Message ${index + 1} ────`, `Role: ${msg.role ?? "unknown"}`];
+	const lines: string[] = ["", `──── Message ${index + 1} ────`, `Role: ${message.role}`];
 
-	if (msg.role === "assistant") {
-		if (msg.provider || msg.model) lines.push(`Model: ${[msg.provider, msg.model].filter(Boolean).join("/")}`);
-		const usage = formatUsage(msg.usage);
-		if (usage) lines.push(usage);
-		if (msg.stopReason) lines.push(`Stop: ${msg.stopReason}`);
-		if (msg.errorMessage) lines.push(`Error: ${msg.errorMessage}`);
+	if (message.role === "assistant") {
+		lines.push(`Model: ${[message.provider, message.model].filter(Boolean).join("/")}`);
+		lines.push(formatUsage(message.usage));
+		lines.push(`Stop: ${message.stopReason}`);
+		if (message.errorMessage) lines.push(`Error: ${message.errorMessage}`);
 	}
 
-	if (msg.role === "toolResult") {
-		lines.push(`Tool: ${msg.toolName ?? "unknown"}`);
-		lines.push(`Tool Call ID: ${msg.toolCallId ?? "unknown"}`);
-		lines.push(`Error: ${msg.isError ? "yes" : "no"}`);
+	if (message.role === "toolResult") {
+		lines.push(`Tool: ${message.toolName ?? "unknown"}`);
+		lines.push(`Tool Call ID: ${message.toolCallId ?? "unknown"}`);
+		lines.push(`Error: ${message.isError ? "yes" : "no"}`);
 	}
 
-	lines.push(...formatContent(msg.content));
+	if ("content" in message) {
+		lines.push(...formatContent(message.content));
+	}
 	return lines;
 }
 
@@ -154,7 +148,7 @@ export function buildTotalContextText(
 			if (contextWindow) {
 				const pct = usage.percent ?? (usage.tokens == null ? null : (usage.tokens / contextWindow) * 100);
 				sections.push(
-					`Context Window: ${usage.tokens?.toLocaleString() ?? "unknown"} / ${contextWindow.toLocaleString()} (${pct == null ? "unknown" : `${pct.toFixed(1)}%`})`,
+					`Usage: ${usage.tokens?.toLocaleString() ?? "unknown"} / ${contextWindow.toLocaleString()} (${pct == null ? "unknown" : `${pct.toFixed(1)}%`})`,
 				);
 			}
 		}
@@ -166,7 +160,7 @@ export function buildTotalContextText(
 }
 
 /** Format active tool definitions as readable text for the Tools tab. */
-export function buildToolsText(activeToolDefs: { name: string; description?: string; parameters?: unknown }[]): string {
+export function buildToolsText(activeToolDefs: ToolDefView[]): string {
 	if (activeToolDefs.length === 0) return "(no active tools)";
 
 	const sections: string[] = [];
@@ -178,13 +172,12 @@ export function buildToolsText(activeToolDefs: { name: string; description?: str
 		}
 		if (tool.parameters) {
 			sections.push("Parameters:");
-			const params = tool.parameters as any;
+			const params = tool.parameters as { properties?: Record<string, { type?: string; description?: string }>; required?: string[] };
 			if (params?.properties) {
 				for (const [key, val] of Object.entries(params.properties)) {
-					const v = val as any;
 					const required = params.required?.includes(key) ? "" : " (optional)";
-					const type = v.type ?? "unknown";
-					const desc = v.description ? `: ${v.description}` : "";
+					const type = val.type ?? "unknown";
+					const desc = val.description ? `: ${val.description}` : "";
 					sections.push(`  ${key} (${type}${required})${desc}`);
 				}
 			} else {
@@ -203,85 +196,119 @@ function isSkillPath(path: unknown): boolean {
 	return /(^|\/)\.agents\/skills\/|(^|\/)\.pi\/agent\/.*\/skills\/|(^|\/)skills\/[^/]+\/SKILL\.md$/i.test(path);
 }
 
-function isSkillReadToolCall(block: any): boolean {
-	if (block?.name !== "read") return false;
-	return isSkillPath(block.arguments?.path ?? block.input?.path ?? block.args?.path);
+function isSkillReadToolCall(block: ToolCallBlock): boolean {
+	if (block.name !== "read") return false;
+	return isSkillPath(block.arguments?.path);
 }
+
+const ESTIMATED_IMAGE_CHARS = 4800;
 
 export function buildTokenBreakdown(
 	systemPrompt: string,
-	activeToolDefs: unknown[],
-	branch: { type: string; message?: any; summary?: string }[],
+	activeToolDefs: ToolInfo[],
+	branch: SessionEntry[],
 	usage: ContextUsage | undefined,
 ): ContextTokenBreakdown | null {
 	if (!usage?.tokens || !usage.contextWindow) return null;
 
-	const estimateTokens = (text: string) => Math.ceil(text.length / 4);
+	const estimateChars = (text: string) => Math.ceil(text.length / 4);
 	const reserveTokens = Math.min(DEFAULT_COMPACTION_SETTINGS.reserveTokens, usage.contextWindow);
 
-	const systemRaw = estimateTokens(systemPrompt);
-	const toolDefsRaw = estimateTokens(JSON.stringify(activeToolDefs));
+	const systemRaw = estimateChars(systemPrompt);
+	const toolDefsRaw = estimateChars(JSON.stringify(activeToolDefs));
 
 	let msgTokensRaw = 0;
-	let toolCallTokensRaw = 0;
-	let toolResultTokensRaw = 0;
+	let toolsRaw = 0;
 	let skillsRaw = 0;
 	const skillToolCallIds = new Set<string>();
 
 	for (const entry of branch) {
-		if (entry.type === "message" && entry.message) {
-			const m = entry.message;
+		if (entry.type === "message") {
+			const message = entry.message;
+			const messageTotal = estimateTokens(message);
+			const weights = { messages: 0, tools: 0, skills: 0 };
 
-			if (m.role === "user") {
-				if (typeof m.content === "string") msgTokensRaw += estimateTokens(m.content);
-				else if (Array.isArray(m.content)) {
-					for (const p of m.content) {
-						if (p?.type === "text") msgTokensRaw += estimateTokens(p.text ?? "");
+			if (message.role === "user") {
+				if (typeof message.content === "string") {
+					weights.messages += estimateChars(message.content);
+				} else {
+					for (const block of message.content) {
+						if (block.type === "text") weights.messages += estimateChars(block.text);
+						else if (block.type === "image") weights.messages += ESTIMATED_IMAGE_CHARS;
 					}
 				}
-			} else if (m.role === "assistant") {
-				if (typeof m.content === "string") msgTokensRaw += estimateTokens(m.content);
-				else if (Array.isArray(m.content)) {
-					for (const p of m.content) {
-						if (p?.type === "text") msgTokensRaw += estimateTokens(p.text ?? "");
-						else if (p?.type === "toolCall") {
-							if (isSkillReadToolCall(p)) {
-								skillsRaw += estimateTokens(JSON.stringify(p));
-								if (p.id) skillToolCallIds.add(p.id);
-							} else {
-								toolCallTokensRaw += estimateTokens(JSON.stringify(p));
-							}
+			} else if (message.role === "assistant") {
+				for (const block of message.content) {
+					if (block.type === "text") weights.messages += estimateChars(block.text);
+					else if (block.type === "thinking") weights.messages += estimateChars(block.thinking);
+					else if (block.type === "toolCall") {
+						if (isSkillReadToolCall(block)) {
+							weights.skills += estimateChars(JSON.stringify(block));
+							skillToolCallIds.add(block.id);
+						} else {
+							weights.tools += estimateChars(JSON.stringify(block));
 						}
 					}
 				}
-			} else if (m.role === "toolResult") {
-				const isSkillResult = skillToolCallIds.has(m.toolCallId);
-				if (Array.isArray(m.content)) {
-					for (const p of m.content) {
-						if (p?.type === "text") {
-							if (isSkillResult) skillsRaw += estimateTokens(p.text ?? "");
-							else toolResultTokensRaw += estimateTokens(p.text ?? "");
-						}
+			} else if (message.role === "toolResult") {
+				const isSkillResult = skillToolCallIds.has(message.toolCallId);
+				for (const block of message.content) {
+					if (block.type === "text") {
+						if (isSkillResult) weights.skills += estimateChars(block.text);
+						else weights.tools += estimateChars(block.text);
 					}
 				}
-			} else if (m.role === "bashExecution") {
-				toolCallTokensRaw += estimateTokens(m.command ?? "");
-				toolResultTokensRaw += estimateTokens(m.output ?? "");
+			} else if (message.role === "bashExecution") {
+				weights.tools += estimateChars(message.command) + estimateChars(message.output);
+			} else if (message.role === "custom") {
+				if (typeof message.content === "string") {
+					weights.messages += estimateChars(message.content);
+				} else {
+					for (const block of message.content) {
+						if (block.type === "text") weights.messages += estimateChars(block.text);
+						else if (block.type === "image") weights.messages += ESTIMATED_IMAGE_CHARS;
+					}
+				}
+			}
+
+			const weightSum = weights.messages + weights.tools + weights.skills;
+			if (weightSum > 0) {
+				const scale = messageTotal / weightSum;
+				msgTokensRaw += weights.messages * scale;
+				toolsRaw += weights.tools * scale;
+				skillsRaw += weights.skills * scale;
 			}
 		} else if (entry.type === "branch_summary" || entry.type === "compaction") {
-			msgTokensRaw += estimateTokens((entry as any).summary ?? "");
+			msgTokensRaw += estimateChars(entry.summary);
 		}
 	}
 
-	const totalRaw = systemRaw + skillsRaw + toolDefsRaw + msgTokensRaw + toolCallTokensRaw + toolResultTokensRaw;
+	const totalRaw = systemRaw + skillsRaw + toolDefsRaw + msgTokensRaw + toolsRaw;
 	const ratio = totalRaw > 0 ? usage.tokens / totalRaw : 1;
 
-	const sys = Math.round(systemRaw * ratio);
-	const skills = Math.round(skillsRaw * ratio);
-	const systemTools = Math.round(toolDefsRaw * ratio);
-	const msgs = Math.round(msgTokensRaw * ratio);
-	const tools = Math.round((toolCallTokensRaw + toolResultTokensRaw) * ratio);
-	const accounted = sys + skills + systemTools + msgs + tools;
+	const exact = {
+		systemPrompt: systemRaw * ratio,
+		systemTools: toolDefsRaw * ratio,
+		tools: toolsRaw * ratio,
+		skills: skillsRaw * ratio,
+		messages: msgTokensRaw * ratio,
+	};
+	const allocated = { systemPrompt: 0, systemTools: 0, tools: 0, skills: 0, messages: 0 };
+	let remainder = usage.tokens;
+	const keys = Object.keys(exact) as (keyof typeof exact)[];
+	for (const key of keys) {
+		const value = Math.floor(exact[key]);
+		allocated[key] = value;
+		remainder -= value;
+	}
+	if (totalRaw > 0) {
+		const byFraction = [...keys].sort((a, b) => exact[b] % 1 - exact[a] % 1);
+		for (const key of byFraction) {
+			if (remainder <= 0) break;
+			allocated[key] += 1;
+			remainder -= 1;
+		}
+	}
 
 	return {
 		total: usage.tokens,
@@ -289,12 +316,12 @@ export function buildTokenBreakdown(
 		percent: usage.percent ?? (usage.tokens / usage.contextWindow) * 100,
 		reserveTokens,
 		safeAvailable: Math.max(0, usage.contextWindow - reserveTokens - usage.tokens),
-		systemPrompt: sys,
-		systemTools,
-		tools,
-		skills,
-		messages: msgs,
-		other: Math.max(0, usage.tokens - accounted),
+		systemPrompt: allocated.systemPrompt,
+		systemTools: allocated.systemTools,
+		tools: allocated.tools,
+		skills: allocated.skills,
+		messages: allocated.messages,
+		other: Math.max(0, usage.tokens - (allocated.systemPrompt + allocated.systemTools + allocated.tools + allocated.skills + allocated.messages)),
 	};
 }
 
@@ -351,7 +378,7 @@ export default function contextViewerExtension(pi: ExtensionAPI): void {
 				}
 				const messagesText = messagesLines.join("\n");
 
-				const modelName = ctx.model?.id ?? (ctx.model as any)?.modelId ?? "unknown model";
+				const modelName = ctx.model?.id ?? "unknown model";
 
 				const tabs = [
 					new StatsTabContent(breakdown, theme, {

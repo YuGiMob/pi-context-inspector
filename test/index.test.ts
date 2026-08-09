@@ -1,4 +1,4 @@
-import type { SessionContext } from "@earendil-works/pi-coding-agent";
+import type { SessionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { buildNumberedLines, buildToolsText, buildTokenBreakdown, buildTotalContextText, formatMessageForDisplay } from "../src/index.js";
 import { type ContextTokenBreakdown, StatsTabContent } from "../src/stats-tab-content.js";
@@ -47,6 +47,44 @@ const context = {
 	thinkingLevel: "off",
 	model: { provider: "anthropic", modelId: "claude-sonnet-4" },
 } satisfies SessionContext;
+
+const testUsage = {
+	input: 1,
+	output: 1,
+	cacheRead: 0,
+	cacheWrite: 0,
+	totalTokens: 2,
+	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+};
+
+function messageEntry(id: string, parentId: string | null, message: Extract<SessionEntry, { type: "message" }>["message"]): SessionEntry {
+	return { type: "message", id, parentId, timestamp: id, message };
+}
+
+const toolBranch: SessionEntry[] = [
+	messageEntry("1", null, { role: "user", content: "Hello", timestamp: 1 }),
+	messageEntry("2", "1", {
+		role: "assistant",
+		content: [
+			{ type: "text", text: "Hi there" },
+			{ type: "toolCall", name: "read", arguments: { path: "/file" }, id: "call-1" },
+		],
+		api: "anthropic-messages",
+		provider: "anthropic",
+		model: "claude-sonnet-4",
+		usage: testUsage,
+		stopReason: "toolUse",
+		timestamp: 2,
+	}),
+	messageEntry("3", "2", {
+		role: "toolResult",
+		toolCallId: "call-1",
+		toolName: "read",
+		content: [{ type: "text", text: "file content here" }],
+		isError: false,
+		timestamp: 3,
+	}),
+];
 
 describe("formatTokens", () => {
 	it("formats token counts with k/M suffixes", () => {
@@ -153,7 +191,7 @@ describe("context viewer formatting", () => {
 		expect(text).toContain("MESSAGES");
 		expect(text).toContain("[Image: image/png]");
 		expect(text).toContain("CONTEXT USAGE");
-		expect(text).toContain("Context Window: 1,000 / 2,000 (50.0%)");
+		expect(text).toContain("Usage: 1,000 / 2,000 (50.0%)");
 	});
 });
 
@@ -233,34 +271,7 @@ describe("buildTokenBreakdown", () => {
 	});
 
 	it("calculates token distribution from branch entries", () => {
-		const branch = [
-			{
-				type: "message",
-				message: {
-					role: "user",
-					content: "Hello",
-				},
-			},
-			{
-				type: "message",
-				message: {
-					role: "assistant",
-					content: [
-						{ type: "text", text: "Hi there" },
-						{ type: "toolCall", name: "read", arguments: { path: "/file" }, id: "call-1" },
-					],
-				},
-			},
-			{
-				type: "message",
-				message: {
-					role: "toolResult",
-					toolCallId: "call-1",
-					content: [{ type: "text", text: "file content here" }],
-				},
-			},
-		];
-		const result = buildTokenBreakdown("system prompt", [], branch, { tokens: 100, contextWindow: 200000 } as any);
+		const result = buildTokenBreakdown("system prompt", [], toolBranch, { tokens: 100, contextWindow: 200000 } as any);
 		expect(result).not.toBeNull();
 		expect(result!.total).toBe(100);
 		expect(result!.systemPrompt).toBeGreaterThan(0);
@@ -269,24 +280,27 @@ describe("buildTokenBreakdown", () => {
 	});
 
 	it("identifies skill-related tool calls", () => {
-		const branch = [
-			{
-				type: "message",
-				message: {
-					role: "assistant",
-					content: [
-						{ type: "toolCall", name: "read", arguments: { path: ".agents/skills/my-skill/SKILL.md" }, id: "skill-1" },
-					],
-				},
-			},
-			{
-				type: "message",
-				message: {
-					role: "toolResult",
-					toolCallId: "skill-1",
-					content: [{ type: "text", text: "skill content" }],
-				},
-			},
+		const branch: SessionEntry[] = [
+			messageEntry("1", null, {
+				role: "assistant",
+				content: [
+					{ type: "toolCall", name: "read", arguments: { path: ".agents/skills/my-skill/SKILL.md" }, id: "skill-1" },
+				],
+				api: "anthropic-messages",
+				provider: "anthropic",
+				model: "claude-sonnet-4",
+				usage: testUsage,
+				stopReason: "toolUse",
+				timestamp: 1,
+			}),
+			messageEntry("2", "1", {
+				role: "toolResult",
+				toolCallId: "skill-1",
+				toolName: "read",
+				content: [{ type: "text", text: "skill content" }],
+				isError: false,
+				timestamp: 2,
+			}),
 		];
 		const result = buildTokenBreakdown("system", [], branch, { tokens: 50, contextWindow: 200000 } as any);
 		expect(result).not.toBeNull();
@@ -294,14 +308,59 @@ describe("buildTokenBreakdown", () => {
 	});
 
 	it("handles compaction entries", () => {
-		const branch = [
-			{
-				type: "compaction",
-				summary: "Previous conversation summary...",
-			},
+		const branch: SessionEntry[] = [
+			{ type: "compaction", id: "1", parentId: null, timestamp: "1", summary: "Previous conversation summary...", firstKeptEntryId: "0", tokensBefore: 1000 },
 		];
 		const result = buildTokenBreakdown("system", [], branch, { tokens: 30, contextWindow: 200000 } as any);
 		expect(result).not.toBeNull();
 		expect(result!.messages).toBeGreaterThan(0);
+	});
+
+	it("counts thinking and image content in the messages category", () => {
+		const plain: SessionEntry[] = [
+			messageEntry("1", null, { role: "user", content: "Look at this", timestamp: 1 }),
+			messageEntry("2", "1", {
+				role: "assistant",
+				content: [{ type: "text", text: "Done" }],
+				api: "anthropic-messages",
+				provider: "anthropic",
+				model: "claude-sonnet-4",
+				usage: testUsage,
+				stopReason: "stop",
+				timestamp: 2,
+			}),
+		];
+		const rich: SessionEntry[] = [
+			messageEntry("1", null, {
+				role: "user",
+				content: [
+					{ type: "text", text: "Look at this" },
+					{ type: "image", data: "abc", mimeType: "image/png" },
+				],
+				timestamp: 1,
+			}),
+			messageEntry("2", "1", {
+				role: "assistant",
+				content: [
+					{ type: "thinking", thinking: "Let me think carefully about this problem" },
+					{ type: "text", text: "Done" },
+				],
+				api: "anthropic-messages",
+				provider: "anthropic",
+				model: "claude-sonnet-4",
+				usage: testUsage,
+				stopReason: "stop",
+				timestamp: 2,
+			}),
+		];
+		const plainResult = buildTokenBreakdown("system", [], plain, { tokens: 100, contextWindow: 200000 } as any);
+		const richResult = buildTokenBreakdown("system", [], rich, { tokens: 100, contextWindow: 200000 } as any);
+		expect(richResult!.messages).toBeGreaterThan(plainResult!.messages);
+	});
+
+	it("allocates categories so they sum exactly to the reported total", () => {
+		const result = buildTokenBreakdown("system prompt", [], toolBranch, { tokens: 100, contextWindow: 200000 } as any);
+		const sum = result!.systemPrompt + result!.systemTools + result!.tools + result!.skills + result!.messages + result!.other;
+		expect(sum).toBe(100);
 	});
 });

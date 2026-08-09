@@ -61,6 +61,8 @@ export abstract class ScrollableBase {
     if (matchesKey(data, Key.escape)) {
       this.searchMode = false;
       this.searchQuery = "";
+      this.searchMatches = [];
+      this.currentMatchIndex = -1;
       return true;
     }
     if (matchesKey(data, Key.enter)) {

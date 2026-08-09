@@ -48,7 +48,7 @@ pi install /path/to/pi-context-inspector
 | --- | --- |
 | `Tab` / `Shift+Tab` | Cycle tabs |
 | `↑` / `↓`, `j` / `k` | Scroll |
-| `gg` / `G` | Jump to top / bottom |
+| `g` / `G` | Jump to top / bottom |
 | `PgUp` / `PgDn`, `Ctrl+b` / `Ctrl+f`, `Ctrl+u` / `Ctrl+d` | Page scroll |
 | `/` | Live search (type, `Enter` to commit) |
 | `n` / `N` | Next / previous match |
@@ -57,7 +57,7 @@ pi install /path/to/pi-context-inspector
 
 ## How the token breakdown works
 
-Each category is estimated from raw text (chars ÷ 4), then all estimates are scaled by a single ratio so they sum to the provider-reported token count. The grid reserves the auto-compact buffer as its own segment; the remaining blocks are filled proportionally by category. `safeAvailable` is the context window minus the reserve minus current usage — when it hits zero, the overlay reports that the auto-compact threshold has been reached.
+Each category is estimated from raw text (chars ÷ 4, using pi's own per-message token estimator so thinking and image content are counted), then all estimates are scaled by a single ratio so they sum to the provider-reported token count. The grid reserves the auto-compact buffer as its own segment; the remaining blocks are filled proportionally by category. `safeAvailable` is the context window minus the reserve minus current usage — when it hits zero, the overlay reports that the auto-compact threshold has been reached.
 
 ## Troubleshooting
 

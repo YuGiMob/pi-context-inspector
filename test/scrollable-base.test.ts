@@ -154,6 +154,16 @@ describe("ScrollableBase", () => {
       const result = (base as any).handleSearchInput("\x1b");
       expect(result).toBe(true);
     });
+
+    it("clears matches on escape", () => {
+      (base as any).searchMode = true;
+      (base as any).searchQuery = "line";
+      (base as any).searchMatches = [0, 1];
+      (base as any).currentMatchIndex = 0;
+      (base as any).handleSearchInput("\x1b");
+      expect((base as any).searchMatches).toEqual([]);
+      expect((base as any).currentMatchIndex).toBe(-1);
+    });
   });
 
   describe("findMatches", () => {
