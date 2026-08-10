@@ -1,5 +1,5 @@
 /**
- * Shared utility helpers for edb-context-viewer.
+ * Shared utility helpers for pi-context-inspector.
  */
 
 import { visibleWidth } from "@earendil-works/pi-tui";

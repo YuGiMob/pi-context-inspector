@@ -28,6 +28,9 @@ export class ScrollableTabContent extends ScrollableBase implements TabContent {
     if (this.searchMatches.length > 0) {
       return ` ${th.fg("accent", "/")} ${th.fg("text", this.searchQuery)} ${th.fg("dim", "—")} ${th.fg("accent", `${this.currentMatchIndex + 1}/${this.searchMatches.length}`)}`;
     }
+    if (this.searchQuery.length > 0) {
+      return ` ${th.fg("accent", "/")} ${th.fg("text", this.searchQuery)} ${th.fg("dim", "—")} ${th.fg("warning", "0 matches")}`;
+    }
     return null;
   }
 

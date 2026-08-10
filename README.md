@@ -78,6 +78,7 @@ npm run typecheck
 ## Credits
 
 - [badlogic](https://github.com/badlogic), pi-coding-agent and the TUI APIs this overlay is built on
+- [Agnish Chakraborty](https://github.com/agnishcc), author of [@agnishc/edb-context-viewer](https://github.com/agnishcc/pi-extention-monorepo/tree/main/packages/edb-context-viewer) — this package is a fork of that extension
 
 ## License
 

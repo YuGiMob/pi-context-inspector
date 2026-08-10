@@ -34,7 +34,7 @@ vi.mock("@earendil-works/pi-tui", () => ({
     return false;
   },
   visibleWidth: (s: string) => s.length,
-  sliceByColumn: (s: string, start: number, end: number) => s.slice(start, end),
+  sliceByColumn: (s: string, start: number, length: number) => s.slice(start, start + length),
   wrapTextWithAnsi: (s: string, width: number) => {
     const lines: string[] = [];
     for (let i = 0; i < s.length; i += width) {
@@ -109,6 +109,8 @@ describe("ScrollableBase", () => {
       });
       (longBase as any).buildVisualLines(80);
       expect((longBase as any).visualTotal).toBeGreaterThan(1);
+      const rendered = (longBase as any).visualLines.join("");
+      expect(rendered.replace(/[^a]/g, "")).toHaveLength(200);
     });
   });
 

@@ -34,7 +34,7 @@ vi.mock("@earendil-works/pi-tui", () => ({
     return false;
   },
   visibleWidth: (s: string) => s.length,
-  sliceByColumn: (s: string, start: number, end: number) => s.slice(start, end),
+  sliceByColumn: (s: string, start: number, length: number) => s.slice(start, start + length),
   wrapTextWithAnsi: (s: string, width: number) => {
     const lines: string[] = [];
     for (let i = 0; i < s.length; i += width) {
@@ -118,6 +118,14 @@ describe("ScrollableTabContent", () => {
       const line = content.getAboveContentLine(80);
       expect(line).toContain("/");
       expect(line).toContain("1/2");
+    });
+
+    it("reports zero matches after a committed search with no results", () => {
+      (content as any).searchQuery = "zzz";
+      (content as any).findMatches();
+      const line = content.getAboveContentLine(80);
+      expect(line).not.toBeNull();
+      expect(line).toContain("0 matches");
     });
   });
 

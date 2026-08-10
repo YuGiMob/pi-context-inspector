@@ -56,7 +56,6 @@ interface Category {
 	>;
 	label: string;
 	icon: string;
-	fallbackIcon: string;
 	value: number;
 	hex: string;
 	block: string;
@@ -67,49 +66,42 @@ const CATEGORY_META = {
 	systemPrompt: {
 		label: "System prompt",
 		icon: "󰈙",
-		fallbackIcon: "●",
 		hex: "#A78BFA",
 		block: "󰈙",
 	},
 	systemTools: {
 		label: "System tools",
 		icon: "󰒓",
-		fallbackIcon: "◆",
 		hex: "#22D3EE",
 		block: "󰒓",
 	},
 	tools: {
 		label: "Tools",
 		icon: "󰐥",
-		fallbackIcon: "▲",
 		hex: "#34D399",
 		block: "󰐥",
 	},
 	skills: {
 		label: "Skills",
 		icon: "󰌵",
-		fallbackIcon: "✦",
 		hex: "#FBBF24",
 		block: "󰌵",
 	},
 	messages: {
 		label: "Messages",
 		icon: "󰍩",
-		fallbackIcon: "■",
 		hex: "#60A5FA",
 		block: "󰍩",
 	},
 	safeAvailable: {
 		label: "Available",
 		icon: "󰋙",
-		fallbackIcon: "□",
 		hex: "#6B7280",
 		block: "󰋙",
 	},
 	reserveTokens: {
 		label: "Auto-compact buffer",
 		icon: "󰅐",
-		fallbackIcon: "▨",
 		hex: "#FB923C",
 		block: "󰅐",
 	},
@@ -218,7 +210,7 @@ export class StatsTabContent implements TabContent {
 	private renderGrid(categories: Category[]): string[] {
 		const blocks: string[] = [];
 		const { contextWindow, reserveTokens } = this.breakdown!;
-		const reserveBlockCount = Math.max(1, Math.round((reserveTokens / contextWindow) * TOTAL_BLOCKS));
+		const reserveBlockCount = reserveTokens > 0 ? Math.max(1, Math.round((reserveTokens / contextWindow) * TOTAL_BLOCKS)) : 0;
 		const safeBlockCount = Math.max(0, TOTAL_BLOCKS - reserveBlockCount);
 		const safeWindow = Math.max(1, contextWindow - reserveTokens);
 		const safeCategories = categories.filter((cat) => cat.key !== "reserveTokens");

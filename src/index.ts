@@ -1,5 +1,5 @@
 /**
- * edb-context-viewer
+ * pi-context-inspector
  *
  * Single command for inspecting the full LLM context in a tabbed overlay:
  *
@@ -96,6 +96,37 @@ export function formatMessageForDisplay(message: SessionContext["messages"][numb
 		lines.push(`Tool: ${message.toolName ?? "unknown"}`);
 		lines.push(`Tool Call ID: ${message.toolCallId ?? "unknown"}`);
 		lines.push(`Error: ${message.isError ? "yes" : "no"}`);
+	}
+
+	if (message.role === "bashExecution") {
+		lines.push(`Command: ${message.command}`);
+		lines.push(...(message.output ? message.output.split("\n") : ["(no output)"]));
+		const status: string[] = [];
+		if (message.cancelled) status.push("cancelled");
+		if (message.truncated) status.push("truncated");
+		lines.push(
+			`Exit: ${message.exitCode == null ? "unknown" : message.exitCode}${status.length > 0 ? ` (${status.join(", ")})` : ""}`,
+		);
+		if (message.truncated && message.fullOutputPath) {
+			lines.push(`Full output: ${message.fullOutputPath}`);
+		}
+		return lines;
+	}
+
+	if (message.role === "branchSummary") {
+		lines.push(`Branch from: ${message.fromId}`);
+		lines.push(message.summary);
+		return lines;
+	}
+
+	if (message.role === "compactionSummary") {
+		lines.push(`Tokens before: ${message.tokensBefore}`);
+		lines.push(message.summary);
+		return lines;
+	}
+
+	if (message.role === "custom") {
+		lines.push(`Custom type: ${message.customType}`);
 	}
 
 	if ("content" in message) {
@@ -209,7 +240,7 @@ export function buildTokenBreakdown(
 	branch: SessionEntry[],
 	usage: ContextUsage | undefined,
 ): ContextTokenBreakdown | null {
-	if (!usage?.tokens || !usage.contextWindow) return null;
+	if (usage == null || usage.tokens == null || !usage.contextWindow) return null;
 
 	const estimateChars = (text: string) => Math.ceil(text.length / 4);
 	const reserveTokens = Math.min(DEFAULT_COMPACTION_SETTINGS.reserveTokens, usage.contextWindow);

@@ -156,6 +156,13 @@ describe("StatsTabContent", () => {
 		expect(stats.handleInput("\x1b")).toBe(false);
 		expect(stats.handleInput("j")).toBe(false);
 	});
+
+	it("renders no reserve grid block when reserve is zero", () => {
+		const zeroReserve: ContextTokenBreakdown = { ...breakdown, reserveTokens: 0, safeAvailable: 155_000 };
+		const stats = new StatsTabContent(zeroReserve, dummyTheme);
+		const text = stats.renderContent(80, 28).join("\n");
+		expect(text.split("󰅐").length - 1).toBe(1);
+	});
 });
 
 describe("context viewer formatting", () => {
@@ -192,6 +199,68 @@ describe("context viewer formatting", () => {
 		expect(text).toContain("[Image: image/png]");
 		expect(text).toContain("CONTEXT USAGE");
 		expect(text).toContain("Usage: 1,000 / 2,000 (50.0%)");
+	});
+
+	it("formats bash execution messages", () => {
+		const lines = formatMessageForDisplay(
+			{
+				role: "bashExecution",
+				command: "ls -la",
+				output: "file1\nfile2",
+				exitCode: 0,
+				cancelled: false,
+				truncated: true,
+				fullOutputPath: "/tmp/full.log",
+				timestamp: 4,
+			} satisfies SessionContext["messages"][number],
+			3,
+		);
+		expect(lines).toContain("Role: bashExecution");
+		expect(lines).toContain("Command: ls -la");
+		expect(lines).toContain("file1");
+		expect(lines).toContain("Exit: 0 (truncated)");
+		expect(lines).toContain("Full output: /tmp/full.log");
+	});
+
+	it("formats branch and compaction summary messages", () => {
+		const branchLines = formatMessageForDisplay(
+			{
+				role: "branchSummary",
+				summary: "We explored the file layout",
+				fromId: "entry-1",
+				timestamp: 5,
+			} satisfies SessionContext["messages"][number],
+			0,
+		);
+		expect(branchLines).toContain("Branch from: entry-1");
+		expect(branchLines).toContain("We explored the file layout");
+
+		const compactionLines = formatMessageForDisplay(
+			{
+				role: "compactionSummary",
+				summary: "Earlier conversation summary",
+				tokensBefore: 5000,
+				timestamp: 6,
+			} satisfies SessionContext["messages"][number],
+			1,
+		);
+		expect(compactionLines).toContain("Tokens before: 5000");
+		expect(compactionLines).toContain("Earlier conversation summary");
+	});
+
+	it("formats custom messages with their type", () => {
+		const lines = formatMessageForDisplay(
+			{
+				role: "custom",
+				customType: "artifact-index",
+				content: "artifact data",
+				display: true,
+				timestamp: 7,
+			} satisfies SessionContext["messages"][number],
+			0,
+		);
+		expect(lines).toContain("Custom type: artifact-index");
+		expect(lines).toContain("artifact data");
 	});
 });
 
@@ -265,9 +334,21 @@ describe("buildTokenBreakdown", () => {
 		expect(result).toBeNull();
 	});
 
-	it("returns null when tokens is 0", () => {
-		const result = buildTokenBreakdown("system", [], [], { tokens: 0, contextWindow: 200000 } as any);
+	it("returns null when tokens is null", () => {
+		const result = buildTokenBreakdown("system", [], [], { tokens: null, contextWindow: 200000 } as any);
 		expect(result).toBeNull();
+	});
+
+	it("returns null when contextWindow is missing", () => {
+		const result = buildTokenBreakdown("system", [], [], { tokens: 100 } as any);
+		expect(result).toBeNull();
+	});
+
+	it("accepts zero tokens as valid usage", () => {
+		const result = buildTokenBreakdown("system", [], [], { tokens: 0, contextWindow: 200000 } as any);
+		expect(result).not.toBeNull();
+		expect(result!.total).toBe(0);
+		expect(result!.safeAvailable).toBe(200000 - 16384);
 	});
 
 	it("calculates token distribution from branch entries", () => {
