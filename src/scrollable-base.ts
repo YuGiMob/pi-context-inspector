@@ -9,6 +9,7 @@ export abstract class ScrollableBase {
   protected searchMatches: number[] = [];
   protected currentMatchIndex = -1;
   protected copyFlash = false;
+  protected copyFlashTimer: ReturnType<typeof setTimeout> | undefined;
   protected visualLines: string[] = [];
   protected visualToLogical: number[] = [];
   protected visualTotal = 0;
@@ -203,7 +204,8 @@ export abstract class ScrollableBase {
     } catch {
       // Silently fail if clipboard tools aren't available
     }
-    setTimeout(() => {
+    clearTimeout(this.copyFlashTimer);
+    this.copyFlashTimer = setTimeout(() => {
       this.copyFlash = false;
     }, 1500);
   }

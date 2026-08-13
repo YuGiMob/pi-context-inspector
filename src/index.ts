@@ -48,6 +48,13 @@ export function buildNumberedLines(text: string, theme: Theme): string[] {
 	});
 }
 
+function numberedTab(text: string, name: string, theme: Theme): ScrollableTabContent {
+	return new ScrollableTabContent(
+		{ rawText: text, displayLines: buildNumberedLines(text, theme), theme },
+		name,
+	);
+}
+
 function formatContent(content: MessageContent): string[] {
 	if (typeof content === "string") return [content];
 
@@ -135,6 +142,18 @@ export function formatMessageForDisplay(message: SessionContext["messages"][numb
 	return lines;
 }
 
+export function formatMessagesText(context: SessionContext): string {
+	const lines: string[] = [];
+	if (context.messages.length > 0) {
+		for (let i = 0; i < context.messages.length; i++) {
+			lines.push(...formatMessageForDisplay(context.messages[i]!, i));
+		}
+	} else {
+		lines.push("(no messages yet)");
+	}
+	return lines.join("\n");
+}
+
 interface ContextViewerModelInfo {
 	provider: string;
 	id: string;
@@ -159,13 +178,7 @@ export function buildTotalContextText(
 	sections.push("MESSAGES");
 	sections.push("═══════════════════════════════════════════════════════");
 
-	if (context.messages.length > 0) {
-		for (let i = 0; i < context.messages.length; i++) {
-			sections.push(...formatMessageForDisplay(context.messages[i]!, i));
-		}
-	} else {
-		sections.push("(no messages yet)");
-	}
+	sections.push(formatMessagesText(context));
 
 	sections.push("");
 	sections.push("═══════════════════════════════════════════════════════");
@@ -259,7 +272,7 @@ export function buildTokenBreakdown(
 			const messageTotal = estimateTokens(message);
 			const weights = { messages: 0, tools: 0, skills: 0 };
 
-			if (message.role === "user") {
+			if (message.role === "user" || message.role === "custom") {
 				if (typeof message.content === "string") {
 					weights.messages += estimateChars(message.content);
 				} else {
@@ -291,15 +304,6 @@ export function buildTokenBreakdown(
 				}
 			} else if (message.role === "bashExecution") {
 				weights.tools += estimateChars(message.command) + estimateChars(message.output);
-			} else if (message.role === "custom") {
-				if (typeof message.content === "string") {
-					weights.messages += estimateChars(message.content);
-				} else {
-					for (const block of message.content) {
-						if (block.type === "text") weights.messages += estimateChars(block.text);
-						else if (block.type === "image") weights.messages += ESTIMATED_IMAGE_CHARS;
-					}
-				}
 			}
 
 			const weightSum = weights.messages + weights.tools + weights.skills;
@@ -389,6 +393,7 @@ export default function contextViewerExtension(pi: ExtensionAPI): void {
 			const breakdown = buildTokenBreakdown(systemPrompt, activeToolDefs, branch, usage);
 			const toolsText = buildToolsText(activeToolDefs);
 			const fullText = buildTotalContextText(systemPrompt, context, usage, ctx.model);
+			const messagesText = formatMessagesText(context);
 
 			// ── Subtitle ────────────────────────────────────────────────────────
 			const subtitle =
@@ -398,17 +403,6 @@ export default function contextViewerExtension(pi: ExtensionAPI): void {
 
 			// ── Build and open the overlay ──────────────────────────────────────
 			await ctx.ui.custom<void>((_tui, theme, _keybindings, done) => {
-				// Build messages text for the Messages tab
-				const messagesLines: string[] = [];
-				if (context.messages.length > 0) {
-					for (let i = 0; i < context.messages.length; i++) {
-						messagesLines.push(...formatMessageForDisplay(context.messages[i]!, i));
-					}
-				} else {
-					messagesLines.push("(no messages yet)");
-				}
-				const messagesText = messagesLines.join("\n");
-
 				const modelName = ctx.model?.id ?? "unknown model";
 
 				const tabs = [
@@ -416,22 +410,10 @@ export default function contextViewerExtension(pi: ExtensionAPI): void {
 						name: modelName,
 						contextWindow: ctx.model?.contextWindow ?? usage?.contextWindow,
 					}),
-					new ScrollableTabContent(
-						{ rawText: systemPrompt, displayLines: buildNumberedLines(systemPrompt, theme), theme },
-						"System",
-					),
-					new ScrollableTabContent(
-						{ rawText: toolsText, displayLines: buildNumberedLines(toolsText, theme), theme },
-						"Tools",
-					),
-					new ScrollableTabContent(
-						{ rawText: messagesText, displayLines: buildNumberedLines(messagesText, theme), theme },
-						"Messages",
-					),
-					new ScrollableTabContent(
-						{ rawText: fullText, displayLines: buildNumberedLines(fullText, theme), theme },
-						"Full",
-					),
+					numberedTab(systemPrompt, "System", theme),
+					numberedTab(toolsText, "Tools", theme),
+					numberedTab(messagesText, "Messages", theme),
+					numberedTab(fullText, "Full", theme),
 				];
 
 				return new TabbedOverlay({

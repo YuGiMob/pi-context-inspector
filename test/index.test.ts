@@ -1,6 +1,6 @@
 import type { SessionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { buildNumberedLines, buildToolsText, buildTokenBreakdown, buildTotalContextText, formatMessageForDisplay } from "../src/index.js";
+import { buildNumberedLines, buildToolsText, buildTokenBreakdown, buildTotalContextText, formatMessageForDisplay, formatMessagesText } from "../src/index.js";
 import { type ContextTokenBreakdown, StatsTabContent } from "../src/stats-tab-content.js";
 import { formatTokens } from "../src/utils.js";
 
@@ -91,9 +91,24 @@ describe("formatTokens", () => {
 		expect(formatTokens(500)).toBe("500");
 		expect(formatTokens(1500)).toBe("2k");
 		expect(formatTokens(45_230)).toBe("45k");
+		expect(formatTokens(999_999)).toBe("999k");
 		expect(formatTokens(1_500_000)).toBe("1.5M");
 		expect(formatTokens(null)).toBe("N/A");
 		expect(formatTokens(undefined)).toBe("N/A");
+	});
+});
+
+describe("formatMessagesText", () => {
+	it("formats all messages with separators", () => {
+		const text = formatMessagesText(context);
+		expect(text).toContain("──── Message 1 ────");
+		expect(text).toContain("Role: user");
+		expect(text).toContain("──── Message 3 ────");
+	});
+
+	it("returns fallback for empty context", () => {
+		const text = formatMessagesText({ ...context, messages: [] });
+		expect(text).toBe("(no messages yet)");
 	});
 });
 
@@ -393,6 +408,21 @@ describe("buildTokenBreakdown", () => {
 			{ type: "compaction", id: "1", parentId: null, timestamp: "1", summary: "Previous conversation summary...", firstKeptEntryId: "0", tokensBefore: 1000 },
 		];
 		const result = buildTokenBreakdown("system", [], branch, { tokens: 30, contextWindow: 200000 } as any);
+		expect(result).not.toBeNull();
+		expect(result!.messages).toBeGreaterThan(0);
+	});
+
+	it("counts custom message content in the messages category", () => {
+		const branch: SessionEntry[] = [
+			messageEntry("1", null, {
+				role: "custom",
+				customType: "artifact-index",
+				content: "artifact data",
+				display: true,
+				timestamp: 1,
+			}),
+		];
+		const result = buildTokenBreakdown("system", [], branch, { tokens: 50, contextWindow: 200000 } as any);
 		expect(result).not.toBeNull();
 		expect(result!.messages).toBeGreaterThan(0);
 	});

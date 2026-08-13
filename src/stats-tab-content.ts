@@ -59,7 +59,6 @@ interface Category {
 	value: number;
 	hex: string;
 	block: string;
-	includeInGrid: boolean;
 }
 
 const CATEGORY_META = {
@@ -192,19 +191,19 @@ export class StatsTabContent implements TabContent {
 	private getCategories(): Category[] {
 		const b = this.breakdown!;
 		return [
-			this.category("systemPrompt", b.systemPrompt, true),
-			this.category("systemTools", b.systemTools, true),
-			this.category("tools", b.tools, true),
-			this.category("skills", b.skills, true),
-			this.category("messages", b.messages + b.other, true),
-			this.category("safeAvailable", b.safeAvailable, true),
-			this.category("reserveTokens", b.reserveTokens, true),
+			this.category("systemPrompt", b.systemPrompt),
+			this.category("systemTools", b.systemTools),
+			this.category("tools", b.tools),
+			this.category("skills", b.skills),
+			this.category("messages", b.messages + b.other),
+			this.category("safeAvailable", b.safeAvailable),
+			this.category("reserveTokens", b.reserveTokens),
 		];
 	}
 
-	private category(key: Category["key"], value: number, includeInGrid: boolean): Category {
+	private category(key: Category["key"], value: number): Category {
 		const meta = CATEGORY_META[key];
-		return { key, value, includeInGrid, ...meta };
+		return { key, value, ...meta };
 	}
 
 	private renderGrid(categories: Category[]): string[] {
